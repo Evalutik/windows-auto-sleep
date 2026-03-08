@@ -14,7 +14,7 @@ a = Analysis(
     ['main.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    datas=[('icon.ico', '.')],
     hiddenimports=[
         'win32event',
         'win32con',
@@ -47,15 +47,15 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,          # no terminal window
-    uac_admin=True,         # always prompt for elevation via UAC
+    uac_admin=False,        # disabled to bypass AV blocking manifest insertion; main.py dynamically elevates
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,              # add a .ico file here if you have one
+    icon='icon.ico',              # add a .ico file here if you have one
 )

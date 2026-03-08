@@ -18,14 +18,16 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
+from gui import get_icon_path
+
 # ── Palette ────────────────────────────────────────────────────────────────
-_BG     = "#1e1e2e"
-_FG     = "#cdd6f4"
-_ACCENT = "#89b4fa"
-_ENTRY  = "#313244"
-_RED    = "#f38ba8"
-_GREEN  = "#a6e3a1"
-_YELLOW = "#f9e2af"
+_BG     = "#313338"   # dark discord background
+_FG     = "#dbdee1"   # text
+_ACCENT = "#5865F2"   # blurple accent
+_ENTRY  = "#1e1f22"   # entry background
+_RED    = "#da373c"   # error / destructive
+_GREEN  = "#57f287"   # success
+_YELLOW = "#fee75c"   # warning
 
 
 class DeactivationWindow:
@@ -44,7 +46,11 @@ class DeactivationWindow:
         self._root.attributes("-topmost", True)
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        w, h = 340, 240 if needs_password else 200
+        icon = get_icon_path()
+        if icon:
+            self._root.iconbitmap(icon)
+
+        w, h = 400, 300 if needs_password else 260
         sw, sh = self._root.winfo_screenwidth(), self._root.winfo_screenheight()
         self._root.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
 
@@ -54,38 +60,38 @@ class DeactivationWindow:
     def _build_ui(self) -> None:
         tk.Label(
             self._root, text="⏸  Cancel Sleep Timer",
-            font=("Segoe UI", 13, "bold"), bg=_BG, fg=_ACCENT,
-        ).pack(pady=(18, 4))
+            font=("Segoe UI", 16, "bold"), bg=_BG, fg=_ACCENT,
+        ).pack(pady=(24, 8))
 
         if self._needs_password:
             tk.Label(
                 self._root, text="Enter cancellation password:",
-                bg=_BG, fg=_FG, font=("Segoe UI", 10),
-            ).pack(pady=(8, 2))
+                bg=_BG, fg=_FG, font=("Segoe UI", 11),
+            ).pack(pady=(12, 4))
             self._pw_var = tk.StringVar()
             self._pw_entry = tk.Entry(
                 self._root, textvariable=self._pw_var,
-                show="•", width=24, justify="center",
+                show="•", width=22, justify="center",
                 bg=_ENTRY, fg=_FG, insertbackground=_FG,
-                font=("Segoe UI", 11), relief="flat", bd=4,
+                font=("Segoe UI", 14), relief="flat", bd=8,
             )
-            self._pw_entry.pack(pady=(0, 4))
+            self._pw_entry.pack(pady=(0, 8))
             self._pw_entry.focus_set()
             self._root.bind("<Return>", lambda _e: self._submit())
         else:
             tk.Label(
                 self._root,
                 text="No password set.\nClick below to cancel the timer.",
-                bg=_BG, fg=_FG, font=("Segoe UI", 10), justify="center",
-            ).pack(pady=(10, 4))
+                bg=_BG, fg=_FG, font=("Segoe UI", 11), justify="center",
+            ).pack(pady=(16, 8))
             self._pw_var = tk.StringVar()
 
         # Status line (errors / success shown here)
         self._status_var = tk.StringVar()
         self._status_lbl = tk.Label(
             self._root, textvariable=self._status_var,
-            bg=_BG, fg=_RED, font=("Segoe UI", 9, "italic"),
-            wraplength=300, justify="center",
+            bg=_BG, fg=_RED, font=("Segoe UI", 10, "italic"),
+            wraplength=340, justify="center",
         )
         self._status_lbl.pack(pady=(4, 0))
 
@@ -93,14 +99,25 @@ class DeactivationWindow:
         self._btn = tk.Button(
             self._root,
             text="✖  Cancel timer",
-            bg=_RED, fg="#1e1e2e",
-            activebackground="#eba0ac", activeforeground="#1e1e2e",
+            bg=_RED, fg="#ffffff",
+            activebackground="#c02026", activeforeground="#ffffff",
             font=("Segoe UI", 11, "bold"),
-            relief="flat", bd=0, padx=18, pady=8,
+            relief="flat", bd=0, padx=24, pady=12,
             cursor="hand2",
             command=self._submit,
         )
-        self._btn.pack(pady=(10, 20))
+        self._btn.pack(pady=(16, 24))
+
+        # Hover effect
+        def on_enter(e):
+            if self._btn["state"] == "normal":
+                self._btn.config(bg="#c02026")
+        def on_leave(e):
+            if self._btn["state"] == "normal":
+                self._btn.config(bg=_RED)
+
+        self._btn.bind("<Enter>", on_enter)
+        self._btn.bind("<Leave>", on_leave)
 
     # ── Button logic ───────────────────────────────────────────────────────
     def _submit(self) -> None:

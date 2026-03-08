@@ -19,29 +19,32 @@ from tkinter import messagebox, ttk
 from datetime import datetime, timedelta
 from typing import Callable, Optional
 
+from gui import get_icon_path
+
 
 # ── Colour palette ─────────────────────────────────────────────────────────
-_BG      = "#1e1e2e"   # dark background
-_FG      = "#cdd6f4"   # text
-_ACCENT  = "#89b4fa"   # blue accent
-_ENTRY   = "#313244"   # entry background
-_BTN     = "#45475a"   # normal button
-_BTN_ACT = "#89b4fa"   # activate button
-_RED     = "#f38ba8"   # uninstall / warning
+_BG      = "#313338"   # dark background
+_FG      = "#dbdee1"   # text
+_ACCENT  = "#5865F2"   # blurple accent
+_ENTRY   = "#1e1f22"   # entry background
+_BTN     = "#4e5058"   # normal button
+_BTN_ACT = "#5865F2"   # activate button
+_RED     = "#da373c"   # uninstall / warning
 
 
 class ActivationWindow:
     """Modal window for scheduling a shutdown.
 
     Args:
-        on_activate:  Called with (minutes: float, password: str).
+        on_activate:  Called with (minutes: float, password: str, action: str).
                       ``password`` is an empty string if the user left it blank.
+                      ``action`` is either "block" or "shutdown".
         on_uninstall: Called when the user confirms the uninstall action.
     """
 
     def __init__(
         self,
-        on_activate:  Callable[[float, str], None],
+        on_activate:  Callable[[float, str, str], None],
         on_uninstall: Callable[[], None],
     ) -> None:
         self._on_activate  = on_activate
@@ -52,10 +55,14 @@ class ActivationWindow:
         self._root.resizable(False, False)
         self._root.configure(bg=_BG)
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
+        
+        icon = get_icon_path()
+        if icon:
+            self._root.iconbitmap(icon)
 
         # Centre on screen
         self._root.update_idletasks()
-        w, h = 380, 340
+        w, h = 420, 540
         sw = self._root.winfo_screenwidth()
         sh = self._root.winfo_screenheight()
         self._root.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
@@ -71,58 +78,71 @@ class ActivationWindow:
         style = ttk.Style(self._root)
         style.theme_use("clam")
         style.configure(".", background=_BG, foreground=_FG, font=("Segoe UI", 10))
-        style.configure("TNotebook",        background=_BG, borderwidth=0)
-        style.configure("TNotebook.Tab",    background=_BTN, foreground=_FG,
-                         padding=[12, 4], font=("Segoe UI", 10))
+        style.configure("TNotebook",        background=_BG, borderwidth=0, padding=0)
+        style.configure("TNotebook.Tab",    background=_ENTRY, foreground=_FG,
+                         padding=[20, 8], font=("Segoe UI", 10, "bold"), borderwidth=0)
         style.map("TNotebook.Tab",
-                  background=[("selected", _ACCENT)],
-                  foreground=[("selected", _BG)])
+                  background=[("selected", _BTN)],
+                  foreground=[("selected", "#ffffff")])
         style.configure("TFrame",  background=_BG)
-        style.configure("TLabel",  background=_BG, foreground=_FG)
-        style.configure("TEntry",  fieldbackground=_ENTRY, foreground=_FG,
-                         insertcolor=_FG, borderwidth=0)
-        style.configure("TSpinbox", fieldbackground=_ENTRY, foreground=_FG,
-                         arrowsize=12, borderwidth=0)
-        style.configure("Accent.TButton",
-                         background=_BTN_ACT, foreground=_BG,
-                         font=("Segoe UI", 10, "bold"), padding=[10, 5])
-        style.map("Accent.TButton",
-                  background=[("active", "#74c7ec"), ("pressed", "#74c7ec")])
-        style.configure("Uninstall.TButton",
-                         background=_RED, foreground=_BG,
-                         font=("Segoe UI", 9), padding=[6, 3])
-        style.map("Uninstall.TButton",
-                  background=[("active", "#eba0ac"), ("pressed", "#eba0ac")])
+        style.configure("TLabel",  background=_BG, foreground=_FG, font=("Segoe UI", 10))
+        # (We use tk.Button, tk.Entry, tk.Spinbox, tk.Radiobutton directly for flat modern styles)
 
     # ── UI construction ────────────────────────────────────────────────────
     def _build_ui(self) -> None:
-        pad = {"padx": 16, "pady": 6}
+        pad = {"padx": 24, "pady": 8}
 
         # Title
         tk.Label(
             self._root, text="🕐  Sleep Timer",
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 16, "bold"),
             bg=_BG, fg=_ACCENT,
-        ).pack(pady=(18, 4))
+        ).pack(pady=(24, 8))
 
         # Notebook (Duration / At time)
         nb = ttk.Notebook(self._root)
-        nb.pack(fill="x", padx=16, pady=6)
+        nb.pack(fill="x", padx=24, pady=8)
 
         self._tab_duration(nb)
         self._tab_attime(nb)
         self._nb = nb
 
         # Separator
-        ttk.Separator(self._root, orient="horizontal").pack(fill="x", padx=16, pady=8)
+        ttk.Separator(self._root, orient="horizontal").pack(fill="x", padx=24, pady=8)
+
+        # Action selection row
+        action_frame = ttk.Frame(self._root)
+        action_frame.pack(fill="x", **pad)
+        ttk.Label(action_frame, text="Action:", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 16))
+        self._action_var = tk.StringVar(value="block")
+        
+        rb_frame = ttk.Frame(action_frame)
+        rb_frame.pack(side="left")
+        tk.Radiobutton(
+            rb_frame, text="Block screen", value="block", variable=self._action_var,
+            bg=_BG, fg=_FG, font=("Segoe UI", 10),
+            selectcolor=_ENTRY, activebackground=_BG, activeforeground=_FG,
+            cursor="hand2"
+        ).pack(side="top", anchor="w", pady=4)
+        tk.Radiobutton(
+            rb_frame, text="Turn off PC", value="shutdown", variable=self._action_var,
+            bg=_BG, fg=_FG, font=("Segoe UI", 10),
+            selectcolor=_ENTRY, activebackground=_BG, activeforeground=_FG,
+            cursor="hand2"
+        ).pack(side="top", anchor="w", pady=4)
+
+        # Separator
+        ttk.Separator(self._root, orient="horizontal").pack(fill="x", padx=24, pady=8)
 
         # Password row
         pw_frame = ttk.Frame(self._root)
         pw_frame.pack(fill="x", **pad)
         ttk.Label(pw_frame, text="Password (optional):").pack(side="left")
         self._pw_var = tk.StringVar()
-        self._pw_entry = ttk.Entry(pw_frame, textvariable=self._pw_var,
-                                    show="•", width=18)
+        self._pw_entry = tk.Entry(pw_frame, textvariable=self._pw_var,
+                                    show="•", width=18, font=("Segoe UI", 12),
+                                    bg=_ENTRY, fg=_FG, insertbackground=_FG,
+                                    relief="flat", bd=6)
         self._pw_entry.pack(side="right")
 
         # Confirm password row
@@ -130,50 +150,77 @@ class ActivationWindow:
         pw2_frame.pack(fill="x", **pad)
         ttk.Label(pw2_frame, text="Confirm password:").pack(side="left")
         self._pw2_var = tk.StringVar()
-        self._pw2_entry = ttk.Entry(pw2_frame, textvariable=self._pw2_var,
-                                     show="•", width=18)
+        self._pw2_entry = tk.Entry(pw2_frame, textvariable=self._pw2_var,
+                                     show="•", width=18, font=("Segoe UI", 12),
+                                     bg=_ENTRY, fg=_FG, insertbackground=_FG,
+                                     relief="flat", bd=6)
         self._pw2_entry.pack(side="right")
 
         # Buttons row
         btn_frame = ttk.Frame(self._root)
-        btn_frame.pack(fill="x", padx=16, pady=(10, 16))
+        btn_frame.pack(fill="x", padx=24, pady=(24, 28))
 
-        ttk.Button(
+        un_btn = tk.Button(
             btn_frame, text="🗑 Uninstall",
-            style="Uninstall.TButton",
+            bg=_BG, fg=_RED,
+            activebackground=_ENTRY, activeforeground=_RED,
+            font=("Segoe UI", 10, "bold"),
+            relief="flat", bd=0, padx=16, pady=8,
+            cursor="hand2",
             command=self._on_uninstall_click,
-        ).pack(side="left")
+        )
+        un_btn.pack(side="left")
 
-        ttk.Button(
+        act_btn = tk.Button(
             btn_frame, text="Activate  ▶",
-            style="Accent.TButton",
+            bg=_BTN_ACT, fg="#ffffff",
+            activebackground="#4752c4", activeforeground="#ffffff",
+            font=("Segoe UI", 11, "bold"),
+            relief="flat", bd=0, padx=28, pady=12,
+            cursor="hand2",
             command=self._on_activate_click,
-        ).pack(side="right")
+        )
+        act_btn.pack(side="right")
+
+        # Hover effects
+        def on_enter_act(e): act_btn.config(bg="#4752c4")
+        def on_leave_act(e): act_btn.config(bg=_BTN_ACT)
+        def on_enter_un(e):  un_btn.config(bg=_ENTRY)
+        def on_leave_un(e):  un_btn.config(bg=_BG)
+
+        act_btn.bind("<Enter>", on_enter_act)
+        act_btn.bind("<Leave>", on_leave_act)
+        un_btn.bind("<Enter>", on_enter_un)
+        un_btn.bind("<Leave>", on_leave_un)
 
     def _tab_duration(self, nb: ttk.Notebook) -> None:
         f = ttk.Frame(nb)
-        nb.add(f, text="  Duration  ")
+        nb.add(f, text="    Duration    ")
         inner = ttk.Frame(f)
-        inner.pack(expand=True, pady=14)
-        ttk.Label(inner, text="Shut down in").pack(side="left", padx=(0, 6))
-        self._dur_var = tk.IntVar(value=30)
-        ttk.Spinbox(
+        inner.pack(expand=True, pady=24)
+        ttk.Label(inner, text="Shut down in", font=("Segoe UI", 11)).pack(side="left", padx=(0, 10))
+        self._dur_var = tk.StringVar(value="30")
+        tk.Spinbox(
             inner, from_=1, to=1440, width=5,
             textvariable=self._dur_var,
-            font=("Segoe UI", 11),
+            font=("Segoe UI", 14),
+            bg=_ENTRY, fg=_FG, insertbackground=_FG,
+            buttonbackground=_ENTRY, relief="flat", bd=6
         ).pack(side="left")
-        ttk.Label(inner, text="minutes").pack(side="left", padx=(6, 0))
+        ttk.Label(inner, text="minutes", font=("Segoe UI", 11)).pack(side="left", padx=(10, 0))
 
     def _tab_attime(self, nb: ttk.Notebook) -> None:
         f = ttk.Frame(nb)
-        nb.add(f, text="  At time  ")
+        nb.add(f, text="    At time    ")
         inner = ttk.Frame(f)
-        inner.pack(expand=True, pady=14)
-        ttk.Label(inner, text="Shut down at").pack(side="left", padx=(0, 6))
+        inner.pack(expand=True, pady=24)
+        ttk.Label(inner, text="Shut down at", font=("Segoe UI", 11)).pack(side="left", padx=(0, 10))
         self._time_var = tk.StringVar(value=datetime.now().strftime("%H:%M"))
-        ttk.Entry(inner, textvariable=self._time_var, width=7,
-                  font=("Segoe UI", 11), justify="center").pack(side="left")
-        ttk.Label(inner, text="(HH:MM, 24h)").pack(side="left", padx=(6, 0))
+        tk.Entry(inner, textvariable=self._time_var, width=7,
+                  font=("Segoe UI", 14), justify="center",
+                  bg=_ENTRY, fg=_FG, insertbackground=_FG,
+                  relief="flat", bd=6).pack(side="left")
+        ttk.Label(inner, text="(HH:MM, 24h)", font=("Segoe UI", 10)).pack(side="left", padx=(10, 0))
 
     # ── Button handlers ────────────────────────────────────────────────────
     def _on_activate_click(self) -> None:
@@ -191,7 +238,7 @@ class ActivationWindow:
             return   # error already shown inside _resolve_minutes
 
         self._root.destroy()
-        self._on_activate(minutes, pw)
+        self._on_activate(minutes, pw, self._action_var.get())
 
     def _resolve_minutes(self) -> Optional[float]:
         tab = self._nb.index("current")

@@ -89,8 +89,7 @@ def run_deactivation() -> None:
         Sends the cancel signal and waits for ACK or NACK from the first instance.
         Returns 'ack', 'nack', or 'timeout'.
         """
-        ipc.signal_cancel(pw)
-        return ipc.wait_for_response(timeout_ms=5000)
+        return ipc.send_cancel_and_wait(pw, timeout_ms=5000)
 
     win = DeactivationWindow(needs_password=needs_pw, on_submit=on_submit)
     win.run()
@@ -129,14 +128,18 @@ def _cancel_monitor() -> None:
             ipc.reset_for_next_attempt()
 
 
-def _on_timer_fired() -> None:
-    """Called by the scheduler thread when time is up — execute shutdown."""
+def _on_timer_fired(action: str = "block") -> None:
+    """Called by the scheduler thread when time is up — execute shutdown/lock."""
     global _tray
     ipc.destroy_server_objects()
     if _tray is not None:
         _tray.stop()
     password.delete_password()  # Ensure no password file is left after shutdown
-    shutdown.execute_shutdown()
+    
+    if action == "block":
+        shutdown.execute_lock()
+    else:
+        shutdown.execute_shutdown()
 
 
 def run_activation() -> None:
@@ -148,9 +151,10 @@ def run_activation() -> None:
 
     activated: dict = {}   # filled by on_activate callback
 
-    def on_activate(minutes: float, pw: str) -> None:
+    def on_activate(minutes: float, pw: str, action: str) -> None:
         activated["minutes"] = minutes
         activated["password"] = pw
+        activated["action"] = action
 
     def on_uninstall() -> None:
         password.uninstall_app_data()
@@ -178,7 +182,8 @@ def run_activation() -> None:
     ipc.create_server_objects()
 
     # Start scheduler
-    _sched = scheduler.ShutdownScheduler(callback=_on_timer_fired)
+    action = activated.get("action", "block")
+    _sched = scheduler.ShutdownScheduler(callback=lambda: _on_timer_fired(action))
     _sched.schedule_duration(minutes=minutes)
 
     # Start tray

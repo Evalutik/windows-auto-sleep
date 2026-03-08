@@ -29,9 +29,27 @@ _fake_win32con.SYNCHRONIZE        = 0x00100000
 _fake_win32con.EVENT_MODIFY_STATE = 0x0002
 
 import sys
+
+_fake_win32api = MagicMock()
+
+_fake_pywintypes = MagicMock()
+class _FakePyWinError(Exception):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args)
+        self.winerror = kwargs.get('winerror', 0)
+_fake_pywintypes.error = _FakePyWinError
+
+_fake_winerror = MagicMock()
+_fake_winerror.ERROR_ACCESS_DENIED = 5
+
+_fake_win32security = MagicMock()
+
 sys.modules.setdefault("win32event", _fake_win32event)
 sys.modules.setdefault("win32con",   _fake_win32con)
-sys.modules.setdefault("pywintypes", MagicMock())
+sys.modules.setdefault("win32api",   _fake_win32api)
+sys.modules.setdefault("pywintypes", _fake_pywintypes)
+sys.modules.setdefault("winerror",   _fake_winerror)
+sys.modules.setdefault("win32security", _fake_win32security)
 
 import core.ipc as ipc_mod   # noqa: E402 — import after mocks are inserted
 
@@ -68,7 +86,7 @@ class TestDestroyServerObjects:
         ipc_mod._cancel_handle = h2
         ipc_mod._ack_handle    = h3
         ipc_mod.destroy_server_objects()
-        assert _fake_win32event.CloseHandle.call_count >= 3
+        assert _fake_win32api.CloseHandle.call_count >= 3
 
     def test_noop_if_no_handles(self) -> None:
         ipc_mod.destroy_server_objects()  # should not raise
@@ -90,17 +108,22 @@ class TestWaitForCancel:
         assert ipc_mod.wait_for_cancel(timeout_ms=100) is False
 
 
-# ── read_cancel_password / signal_cancel ──────────────────────────────────
-class TestTempFile:
+# ── send_cancel_and_wait / read_cancel_password ───────────────────────────
+class TestSendCancelAndWait:
     def test_signal_then_read(self, tmp_path: Path) -> None:
         req_file = tmp_path / "as_req.tmp"
         ipc_mod._TEMP_REQUEST = req_file
-        # Suppress actual event open in signal_cancel
+        
+        # Suppress actual event opens
         _fake_win32event.OpenEvent.return_value = MagicMock()
-        ipc_mod.signal_cancel("mypassword")
+        _fake_win32event.WaitForMultipleObjects.return_value = WAIT_OBJECT_0  # simulates 'ack'
+        
+        result = ipc_mod.send_cancel_and_wait("mypassword")
+        assert result == "ack"
         assert req_file.exists()
-        result = ipc_mod.read_cancel_password()
-        assert result == "mypassword"
+        
+        read_back = ipc_mod.read_cancel_password()
+        assert read_back == "mypassword"
         assert not req_file.exists()   # file deleted after read
 
     def test_read_returns_empty_if_no_file(self, tmp_path: Path) -> None:

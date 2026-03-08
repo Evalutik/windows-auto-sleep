@@ -25,7 +25,9 @@ from typing import Optional
 import win32api
 import win32event
 import win32con
+import win32security
 import pywintypes
+import winerror
 
 # ── Named-object names ─────────────────────────────────────────────────────
 _MUTEX_NAME  = "Local\\AutoSleepRunning"
@@ -43,15 +45,25 @@ _ack_handle:    Optional[object] = None
 _nack_handle:   Optional[object] = None
 
 
+def _get_null_sa() -> win32security.SECURITY_ATTRIBUTES:
+    """Return SECURITY_ATTRIBUTES with a NULL DACL allowing everyone access."""
+    sd = win32security.SECURITY_DESCRIPTOR()
+    sd.SetSecurityDescriptorDacl(1, None, 0)
+    sa = win32security.SECURITY_ATTRIBUTES()
+    sa.SECURITY_DESCRIPTOR = sd
+    return sa
+
+
 # ── First-instance (server) side ───────────────────────────────────────────
 def create_server_objects() -> None:
     """Create the named mutex and events. Called once by the first instance."""
     global _mutex_handle, _cancel_handle, _ack_handle, _nack_handle
-    _mutex_handle  = win32event.CreateMutex(None, True, _MUTEX_NAME)
-    # Manual-reset events so we can reset them after each attempt
-    _cancel_handle = win32event.CreateEvent(None, True, False, _CANCEL_NAME)
-    _ack_handle    = win32event.CreateEvent(None, True, False, _ACK_NAME)
-    _nack_handle   = win32event.CreateEvent(None, True, False, _NACK_NAME)
+    sa = _get_null_sa()
+    _mutex_handle  = win32event.CreateMutex(sa, True, _MUTEX_NAME)
+    # Auto-reset events (bManualReset=False) prevent race conditions
+    _cancel_handle = win32event.CreateEvent(sa, False, False, _CANCEL_NAME)
+    _ack_handle    = win32event.CreateEvent(sa, False, False, _ACK_NAME)
+    _nack_handle   = win32event.CreateEvent(sa, False, False, _NACK_NAME)
 
 
 def destroy_server_objects() -> None:
@@ -97,11 +109,8 @@ def send_nack() -> None:
 
 
 def reset_for_next_attempt() -> None:
-    """Reset cancel + nack events so the second instance can try again."""
-    if _cancel_handle is not None:
-        win32event.ResetEvent(_cancel_handle)
-    if _nack_handle is not None:
-        win32event.ResetEvent(_nack_handle)
+    """No-op. Left for backwards compatibility, auto-reset handles state."""
+    pass
 
 
 # ── Second-instance (client) side ─────────────────────────────────────────
@@ -111,35 +120,37 @@ def is_first_instance_running() -> bool:
         h = win32event.OpenMutex(win32con.SYNCHRONIZE, False, _MUTEX_NAME)
         win32api.CloseHandle(h)
         return True
-    except pywintypes.error:
+    except pywintypes.error as e:
+        if getattr(e, 'winerror', None) == winerror.ERROR_ACCESS_DENIED:
+            return True
         return False
 
 
-def signal_cancel(password: str) -> None:
-    """Write the password to the temp file and fire the cancel event."""
-    _TEMP_REQUEST.write_text(password, encoding="utf-8")
-    try:
-        h = win32event.OpenEvent(win32con.EVENT_MODIFY_STATE, False, _CANCEL_NAME)
-        win32event.SetEvent(h)
-        win32api.CloseHandle(h)
-    except pywintypes.error:
-        pass
-
-
-def wait_for_response(timeout_ms: int = 5000) -> str:
-    """Wait for ACK or NACK from the first instance.
-
-    Returns:
-        'ack'     — correct password, timer cancelled.
-        'nack'    — wrong password, try again.
-        'timeout' — no response (first instance may have already shut down).
+def send_cancel_and_wait(password: str, timeout_ms: int = 5000) -> str:
+    """Safely open response handles, signal cancel, and wait for response.
+    
+    Opens ACK/NACK handles before signaling CANCEL to ensure the handles are 
+    held open, preventing the server from destroying them before we can wait.
     """
     try:
         ack_h  = win32event.OpenEvent(win32con.SYNCHRONIZE, False, _ACK_NAME)
         nack_h = win32event.OpenEvent(win32con.SYNCHRONIZE, False, _NACK_NAME)
-        result = win32event.WaitForMultipleObjects([ack_h, nack_h], False, timeout_ms)
+    except pywintypes.error:
+        return "timeout"
+
+    _TEMP_REQUEST.write_text(password, encoding="utf-8")
+    
+    try:
+        cancel_h = win32event.OpenEvent(win32con.EVENT_MODIFY_STATE, False, _CANCEL_NAME)
+        win32event.SetEvent(cancel_h)
+        win32api.CloseHandle(cancel_h)
+    except pywintypes.error:
         win32api.CloseHandle(ack_h)
         win32api.CloseHandle(nack_h)
+        return "timeout"
+        
+    try:
+        result = win32event.WaitForMultipleObjects([ack_h, nack_h], False, timeout_ms)
         if result == win32event.WAIT_OBJECT_0:
             return "ack"
         elif result == win32event.WAIT_OBJECT_0 + 1:
@@ -148,3 +159,6 @@ def wait_for_response(timeout_ms: int = 5000) -> str:
             return "timeout"
     except pywintypes.error:
         return "timeout"
+    finally:
+        win32api.CloseHandle(ack_h)
+        win32api.CloseHandle(nack_h)
